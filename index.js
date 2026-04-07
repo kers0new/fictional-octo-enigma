@@ -4,6 +4,7 @@ const {
     SlashCommandBuilder,
     REST,
     Routes,
+    EmbedBuilder,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle
@@ -77,7 +78,7 @@ const commands = [
     // Script panel
     new SlashCommandBuilder()
         .setName("setpanel")
-        .setDescription("Create the script panel")
+        .setDescription("Create the Luarmor-style script panel")
         .setDefaultMemberPermissions(0x8)
 ];
 
@@ -164,9 +165,15 @@ client.on("interactionCreate", async interaction => {
         }
 
         // -----------------------------
-        // /setpanel
+        // /setpanel (Luarmor-style)
         // -----------------------------
         if (name === "setpanel") {
+
+            const embed = new EmbedBuilder()
+                .setTitle("🎛️ Script Loader Panel")
+                .setDescription("Click the button below to receive your loader script.\n\n**Luarmor‑Style Panel**")
+                .setColor("#f1c40f");
+
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId("get_script")
@@ -175,7 +182,7 @@ client.on("interactionCreate", async interaction => {
             );
 
             return interaction.reply({
-                content: "**📌 Script Panel**\nClick the button below to receive your loader script.",
+                embeds: [embed],
                 components: [row]
             });
         }
@@ -188,8 +195,8 @@ client.on("interactionCreate", async interaction => {
         if (interaction.customId === "get_script") {
 
             const loaderScript = `
--- Example Loader Script
-print("Loaded successfully!")
+-- Luarmor-Style Loader
+print("Script Loaded Successfully!")
             `;
 
             try {
