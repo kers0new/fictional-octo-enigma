@@ -9,19 +9,19 @@ const {
     ButtonBuilder,
     ButtonStyle
 } = require("discord.js");
-
 const fs = require("fs");
 
 // ENV VARS
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const LOG_CHANNEL = process.env.LOG_CHANNEL;
 
 // -----------------------------
 // SIMPLE JSON DATABASE
 // -----------------------------
 const db = {
-    users: {},
-    keys: {}
+    users: {}, // userId: { hwid, key }
+    keys: {}   // key: { used, ownerId }
 };
 
 function saveDB() {
@@ -44,13 +44,11 @@ const client = new Client({
 // -----------------------------
 const commands = [
 
-    // Generate key
     new SlashCommandBuilder()
         .setName("genkey")
         .setDescription("Generate a license key")
         .setDefaultMemberPermissions(0x8),
 
-    // Redeem key
     new SlashCommandBuilder()
         .setName("redeem")
         .setDescription("Redeem a license key")
@@ -61,12 +59,10 @@ const commands = [
             o.setName("hwid").setDescription("Your HWID").setRequired(true)
         ),
 
-    // Reset HWID
     new SlashCommandBuilder()
         .setName("resethwid")
         .setDescription("Reset your HWID"),
 
-    // Force reset HWID
     new SlashCommandBuilder()
         .setName("force_resethwid")
         .setDescription("Force reset a user's HWID")
@@ -75,10 +71,9 @@ const commands = [
         )
         .setDefaultMemberPermissions(0x8),
 
-    // Script panel
     new SlashCommandBuilder()
         .setName("setpanel")
-        .setDescription("Create the Luarmor-style script panel")
+        .setDescription("Create the script access panel")
         .setDefaultMemberPermissions(0x8)
 ];
 
@@ -98,32 +93,33 @@ async function registerCommands() {
 }
 
 // -----------------------------
-// BOT READY
+// READY
 // -----------------------------
 client.on("ready", () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
 // -----------------------------
-// INTERACTION HANDLER
+// INTERACTIONS
 // -----------------------------
 client.on("interactionCreate", async interaction => {
     if (interaction.isChatInputCommand()) {
         const name = interaction.commandName;
 
-        // -----------------------------
         // /genkey
-        // -----------------------------
         if (name === "genkey") {
             const key = Math.random().toString(36).substring(2, 12).toUpperCase();
-            db.keys[key] = { used: false };
+            db.keys[key] = { used: false, ownerId: null };
             saveDB();
-            return interaction.reply(`🔑 Generated key: \`${key}\``);
+
+            await interaction.reply(`🔑 Generated key: \`${key}\``);
+
+            const log = client.channels.cache.get(LOG_CHANNEL);
+            if (log) log.send(`🧾 **${interaction.user.tag}** generated key \`${key}\``);
+            return;
         }
 
-        // -----------------------------
         // /redeem
-        // -----------------------------
         if (name === "redeem") {
             const key = interaction.options.getString("key");
             const hwid = interaction.options.getString("hwid");
@@ -132,47 +128,56 @@ client.on("interactionCreate", async interaction => {
             if (db.keys[key].used) return interaction.reply("❌ Key already used");
 
             db.keys[key].used = true;
-            db.users[interaction.user.id] = { hwid };
+            db.keys[key].ownerId = interaction.user.id;
+            db.users[interaction.user.id] = { hwid, key };
             saveDB();
 
-            return interaction.reply("✅ Key redeemed");
+            await interaction.reply("✅ Key redeemed");
+
+            const log = client.channels.cache.get(LOG_CHANNEL);
+            if (log) log.send(`✅ **${interaction.user.tag}** redeemed key \`${key}\` with HWID \`${hwid}\``);
+            return;
         }
 
-        // -----------------------------
         // /resethwid
-        // -----------------------------
         if (name === "resethwid") {
-            if (!db.users[interaction.user.id])
-                return interaction.reply("❌ You are not registered");
+            const userData = db.users[interaction.user.id];
+            if (!userData) return interaction.reply("❌ You are not registered");
 
-            db.users[interaction.user.id].hwid = null;
+            userData.hwid = null;
             saveDB();
-            return interaction.reply("🔄 HWID reset");
+
+            await interaction.reply("🔄 HWID reset");
+
+            const log = client.channels.cache.get(LOG_CHANNEL);
+            if (log) log.send(`♻️ **${interaction.user.tag}** reset their HWID`);
+            return;
         }
 
-        // -----------------------------
         // /force_resethwid
-        // -----------------------------
         if (name === "force_resethwid") {
             const user = interaction.options.getUser("user");
+            const userData = db.users[user.id];
 
-            if (!db.users[user.id])
-                return interaction.reply("❌ User not registered");
+            if (!userData) return interaction.reply("❌ User not registered");
 
-            db.users[user.id].hwid = null;
+            userData.hwid = null;
             saveDB();
-            return interaction.reply(`🔧 Reset HWID for ${user.username}`);
+
+            await interaction.reply(`🔧 Reset HWID for ${user.username}`);
+
+            const log = client.channels.cache.get(LOG_CHANNEL);
+            if (log) log.send(`🔧 **${interaction.user.tag}** force-reset HWID for **${user.tag}**`);
+            return;
         }
 
-        // -----------------------------
-        // /setpanel (Luarmor-style)
-        // -----------------------------
+        // /setpanel
         if (name === "setpanel") {
-
             const embed = new EmbedBuilder()
-                .setTitle("🎛️ Script Loader Panel")
-                .setDescription("Click the button below to receive your loader script.\n\n**Luarmor‑Style Panel**")
-                .setColor("#f1c40f");
+                .setTitle("Premium Script Access Panel")
+                .setDescription("Click the button below to receive your loader script.\n\nAccess is based on your redeemed key + HWID.")
+                .setColor("#f1c40f")
+                .setThumbnail("https://i.imgur.com/8fK4h6X.png");
 
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -181,33 +186,51 @@ client.on("interactionCreate", async interaction => {
                     .setStyle(ButtonStyle.Primary)
             );
 
-            return interaction.reply({
+            await interaction.reply({
                 embeds: [embed],
                 components: [row]
             });
+
+            const log = client.channels.cache.get(LOG_CHANNEL);
+            if (log) log.send(`📌 **${interaction.user.tag}** created a script panel in <#${interaction.channelId}>`);
+            return;
         }
     }
 
-    // -----------------------------
-    // BUTTON HANDLER
-    // -----------------------------
+    // BUTTONS
     if (interaction.isButton()) {
         if (interaction.customId === "get_script") {
+            const userData = db.users[interaction.user.id];
+
+            if (!userData || !userData.key) {
+                return interaction.reply({
+                    content: "❌ You don't have a redeemed key. Use `/redeem` first.",
+                    ephemeral: true
+                });
+            }
 
             const loaderScript = `
--- Luarmor-Style Loader
-print("Script Loaded Successfully!")
+-- Premium Loader Example
+-- User: ${interaction.user.id}
+-- Key: ${userData.key}
+
+print("Loader started for user ${interaction.user.id}")
+
+-- Your script logic here
             `;
 
             try {
                 await interaction.user.send(
-                    "Here is your script:\n```lua\n" + loaderScript + "\n```"
+                    "Here is your loader script:\n```lua\n" + loaderScript + "\n```"
                 );
 
                 await interaction.reply({
                     content: "📬 Check your DMs!",
                     ephemeral: true
                 });
+
+                const log = client.channels.cache.get(LOG_CHANNEL);
+                if (log) log.send(`📥 **${interaction.user.tag}** requested the loader script.`);
 
             } catch {
                 await interaction.reply({
@@ -220,7 +243,7 @@ print("Script Loaded Successfully!")
 });
 
 // -----------------------------
-// START BOT
+// START
 // -----------------------------
 registerCommands();
 client.login(TOKEN);
